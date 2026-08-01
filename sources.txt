@@ -1,0 +1,5 @@
+# Put one raw text file or subscription URL on each line.
+# GitHub "blob" URLs are automatically converted to raw file URLs.
+# Examples:
+# https://raw.githubusercontent.com/owner/repository/main/subscription.txt
+# https://github.com/owner/repository/blob/main/configs.txt
