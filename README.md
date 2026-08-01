@@ -29,6 +29,16 @@ The automation creates:
 - `subscriptions/mihomo.yaml`: a complete ready-to-import Mihomo/Clash configuration.
 - `subscriptions/proxies.yaml`: a Mihomo/Clash proxy-provider document containing
   only the generated `proxies` list.
+- `subscriptions/tested.txt`: only URL-tested working URI configurations, ordered
+  from lowest to highest delay.
+- `subscriptions/tested-base64.txt`: the same tested, delay-ordered URI list as a
+  Base64 subscription.
+- `subscriptions/mihomo-tested.yaml`: a ready-to-import Mihomo/Clash configuration
+  containing only tested proxies in delay order.
+- `subscriptions/proxies-tested.yaml`: the tested, delay-ordered proxy-provider
+  document.
+- `subscriptions/latency.json`: the latest delay and status for every testable
+  proxy. Failed and timed-out nodes remain in the all-config subscriptions.
 
 Clash-compatible YAML requires unique proxy names. When multiple configurations
 have the same three-part name, the YAML outputs add a numeric suffix to the final
@@ -43,7 +53,12 @@ with different names is only included once.
 
 The GitHub Actions workflow runs once every 24 hours and can also be started from
 the **Actions** tab with **Run workflow**. It downloads a current GeoLite country
-database, rebuilds both output files, and commits them only when they change.
+database, rebuilds the outputs, runs a real Mihomo URL test against Google's
+`generate_204` endpoint with a five-second timeout, sorts working proxies by
+delay, and commits the results only when they change.
+
+Delays are measured from the GitHub-hosted Actions runner, so they represent the
+runner's network location rather than the subscriber's location.
 
 If the default branch is protected against direct pushes, allow GitHub Actions to
 push or adapt the final workflow step to open a pull request.

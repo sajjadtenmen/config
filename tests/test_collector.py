@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import collector
+import rank_configs
 
 
 def vmess_link(name: str) -> str:
@@ -117,6 +118,19 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(proxy["sni"], "example.com")
         self.assertNotIn("servername", proxy)
         self.assertNotIn("tls", proxy)
+
+    def test_ranked_candidates_keep_only_alive_in_delay_order(self):
+        links = [
+            "vless://one@example.com:443?type=ws&security=tls#Same",
+            "vless://two@example.com:443?type=ws&security=tls#Same",
+            "vless://three@example.com:443?type=ws&security=tls#Third",
+        ]
+        candidates = rank_configs.build_candidates(links)
+        alive, failed = rank_configs.ranked_candidates(
+            candidates, {"Same-2": 80, "Same": 120}
+        )
+        self.assertEqual([item.name for item in alive], ["Same-2", "Same"])
+        self.assertEqual([item.name for item in failed], ["Third"])
 
 
 if __name__ == "__main__":

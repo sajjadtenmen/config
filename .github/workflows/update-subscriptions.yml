@@ -40,6 +40,25 @@ jobs:
       - name: Collect subscriptions
         run: python collector.py
 
+      - name: Download Mihomo
+        run: |
+          curl --fail --location --retry 3 \
+            --output .cache/mihomo.gz \
+            https://github.com/MetaCubeX/mihomo/releases/download/v1.19.29/mihomo-linux-amd64-compatible-v1.19.29.gz
+          gzip --decompress .cache/mihomo.gz
+          chmod +x .cache/mihomo
+
+      - name: URL-test and rank subscriptions
+        run: |
+          mkdir -p .cache/mihomo-home
+          .cache/mihomo -d .cache/mihomo-home \
+            -f subscriptions/mihomo.yaml \
+            -ext-ctl 127.0.0.1:9090 \
+            > .cache/mihomo.log 2>&1 &
+          MIHOMO_PID=$!
+          trap 'kill "$MIHOMO_PID" 2>/dev/null || true' EXIT
+          python rank_configs.py
+
       - name: Commit updated subscriptions
         run: |
           if [ -z "$(git status --porcelain -- subscriptions/)" ]; then
@@ -49,6 +68,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add subscriptions/all.txt subscriptions/base64.txt \
-            subscriptions/mihomo.yaml subscriptions/proxies.yaml
+            subscriptions/mihomo.yaml subscriptions/proxies.yaml \
+            subscriptions/tested.txt subscriptions/tested-base64.txt \
+            subscriptions/mihomo-tested.yaml subscriptions/proxies-tested.yaml \
+            subscriptions/latency.json
           git commit -m "chore: update proxy subscriptions"
           git push
