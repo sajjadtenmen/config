@@ -51,6 +51,10 @@ class CollectorTests(unittest.TestCase):
         self.assertIn("%40STenmenB", renamed)
         self.assertNotIn("#old", renamed)
 
+    def test_invalid_legacy_hostname_does_not_crash_resolution(self):
+        overlong_host = "a" * 100
+        self.assertIsNone(collector.CountryLookup.resolve(overlong_host))
+
     def test_collect_end_to_end_with_local_source(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.txt"

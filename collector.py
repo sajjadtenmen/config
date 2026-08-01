@@ -168,13 +168,18 @@ class CountryLookup:
     def resolve(host: str) -> str | None:
         if not host:
             return None
+        # Some legacy SS/SSR links place an encoded payload where a normal
+        # hostname would appear. Never let an invalid DNS label abort a full
+        # subscription refresh; it can still be retained with the globe flag.
+        if len(host) > 253 or any(len(label) > 63 for label in host.split(".")):
+            return None
         try:
             return str(ipaddress.ip_address(host))
         except ValueError:
             pass
         try:
             results = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        except socket.gaierror:
+        except (socket.gaierror, UnicodeError, OSError):
             return None
         public = []
         for result in results:
