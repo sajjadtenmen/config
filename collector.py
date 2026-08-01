@@ -271,6 +271,19 @@ def tls_options(proxy: dict[str, object], details: dict[str, str], default_tls: 
             proxy["reality-opts"] = reality
 
 
+def hysteria_options(proxy: dict[str, object], details: dict[str, str]) -> None:
+    """Apply Mihomo's Hysteria-specific TLS and bandwidth field names."""
+    server_name = details.get("sni") or details.get("servername")
+    if server_name:
+        proxy["sni"] = server_name
+    if as_bool(details.get("allowinsecure") or details.get("insecure") or details.get("skip-cert-verify")):
+        proxy["skip-cert-verify"] = True
+    if details.get("up") or details.get("upmbps"):
+        proxy["up"] = details.get("up") or f"{details['upmbps']} Mbps"
+    if details.get("down") or details.get("downmbps"):
+        proxy["down"] = details.get("down") or f"{details['downmbps']} Mbps"
+
+
 def decode_ss_parts(config: ProxyConfig) -> tuple[str, int, str, str] | None:
     raw = config.original.split("#", 1)[0]
     parsed = urllib.parse.urlsplit(raw)
@@ -357,7 +370,7 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
         if not auth:
             return None
         proxy.update({"type": "hysteria2", "server": server, "port": port, "password": auth})
-        tls_options(proxy, config.details, default_tls=True)
+        hysteria_options(proxy, config.details)
         if config.details.get("obfs"):
             proxy["obfs"] = config.details["obfs"]
         if config.details.get("obfs-password"):
@@ -366,10 +379,10 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
         proxy.update({"type": "hysteria", "server": server, "port": port})
         if username:
             proxy["auth-str"] = username
-        for key in ("up", "down", "protocol"):
-            if config.details.get(key):
-                proxy[key] = config.details[key]
-        tls_options(proxy, config.details, default_tls=True)
+        hysteria_options(proxy, config.details)
+        proxy.setdefault("up", "30 Mbps")
+        proxy.setdefault("down", "200 Mbps")
+        proxy["protocol"] = config.details.get("protocol") or "udp"
     else:
         return None
     return proxy

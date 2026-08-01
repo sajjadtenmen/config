@@ -94,6 +94,30 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(names, ["Same", "Same-2"])
         self.assertEqual(full["rules"], ["MATCH,🚀 Proxy"])
 
+    def test_hysteria_has_required_bandwidth_defaults(self):
+        config = collector.parse_config(
+            "hysteria://secret@server.example:443?sni=example.com&insecure=1#HY"
+        )
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, "HY")
+        assert proxy is not None
+        self.assertEqual(proxy["up"], "30 Mbps")
+        self.assertEqual(proxy["down"], "200 Mbps")
+        self.assertEqual(proxy["protocol"], "udp")
+        self.assertEqual(proxy["sni"], "example.com")
+        self.assertNotIn("tls", proxy)
+
+    def test_hysteria2_uses_sni_field(self):
+        config = collector.parse_config(
+            "hysteria2://secret@server.example:443?sni=example.com#HY2"
+        )
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, "HY2")
+        assert proxy is not None
+        self.assertEqual(proxy["sni"], "example.com")
+        self.assertNotIn("servername", proxy)
+        self.assertNotIn("tls", proxy)
+
 
 if __name__ == "__main__":
     unittest.main()
