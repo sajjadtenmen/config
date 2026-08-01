@@ -1,0 +1,54 @@
+name: Update proxy subscriptions
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Once every 24 hours, at 03:17 UTC.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-proxy-subscriptions
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Download country database
+        run: |
+          mkdir -p .cache
+          curl --fail --location --retry 3 \
+            --output .cache/GeoLite2-Country.mmdb \
+            https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb
+
+      - name: Collect subscriptions
+        run: python collector.py
+
+      - name: Commit updated subscriptions
+        run: |
+          if [ -z "$(git status --porcelain -- subscriptions/)" ]; then
+            echo "Subscriptions are already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add subscriptions/all.txt subscriptions/base64.txt \
+            subscriptions/mihomo.yaml subscriptions/proxies.yaml
+          git commit -m "chore: update proxy subscriptions"
+          git push
