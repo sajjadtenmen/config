@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
+import yaml
+
 
 SUPPORTED_SCHEMES = {
     "vless",
@@ -212,6 +214,203 @@ def rename_config(config: ProxyConfig, name: str) -> str:
     return base + "#" + urllib.parse.quote(name, safe="")
 
 
+def config_display_name(config: ProxyConfig) -> str:
+    if config.scheme == "vmess":
+        return str(decode_vmess(config.original).get("ps") or "Proxy")
+    fragment = urllib.parse.urlsplit(config.original).fragment
+    return urllib.parse.unquote(fragment) or "Proxy"
+
+
+def as_bool(value: str | None) -> bool:
+    return (value or "").lower() in {"1", "true", "yes"}
+
+
+def uri_parts(config: ProxyConfig) -> urllib.parse.SplitResult:
+    return urllib.parse.urlsplit(config.original.split("#", 1)[0])
+
+
+def network_options(proxy: dict[str, object], details: dict[str, str]) -> None:
+    network = (details.get("type") or details.get("network") or details.get("net") or "").lower()
+    if network in {"", "tcp", "raw", "none"}:
+        return
+    proxy["network"] = network
+    if network == "ws":
+        ws_options: dict[str, object] = {}
+        if details.get("path"):
+            ws_options["path"] = details["path"]
+        if details.get("host"):
+            ws_options["headers"] = {"Host": details["host"]}
+        if ws_options:
+            proxy["ws-opts"] = ws_options
+    elif network == "grpc" and (details.get("serviceName") or details.get("servicename")):
+        proxy["grpc-opts"] = {
+            "grpc-service-name": details.get("serviceName") or details.get("servicename")
+        }
+
+
+def tls_options(proxy: dict[str, object], details: dict[str, str], default_tls: bool = False) -> None:
+    security = (details.get("security") or details.get("tls") or "").lower()
+    tls = default_tls or security in {"tls", "reality", "1", "true"}
+    if tls:
+        proxy["tls"] = True
+    server_name = details.get("sni") or details.get("servername") or details.get("serverName")
+    if server_name:
+        proxy["servername"] = server_name
+    if as_bool(details.get("allowinsecure") or details.get("insecure") or details.get("skip-cert-verify")):
+        proxy["skip-cert-verify"] = True
+    fingerprint = details.get("fp") or details.get("client-fingerprint")
+    if fingerprint:
+        proxy["client-fingerprint"] = fingerprint
+    if security == "reality":
+        reality: dict[str, object] = {}
+        if details.get("pbk"):
+            reality["public-key"] = details["pbk"]
+        if details.get("sid"):
+            reality["short-id"] = details["sid"]
+        if reality:
+            proxy["reality-opts"] = reality
+
+
+def decode_ss_parts(config: ProxyConfig) -> tuple[str, int, str, str] | None:
+    raw = config.original.split("#", 1)[0]
+    parsed = urllib.parse.urlsplit(raw)
+    try:
+        if parsed.hostname and parsed.port:
+            userinfo = parsed.netloc.rsplit("@", 1)[0] if "@" in parsed.netloc else ""
+            decoded_userinfo = decode_base64_text(userinfo)
+            if decoded_userinfo is None:
+                try:
+                    decoded_userinfo = base64.urlsafe_b64decode(add_base64_padding(userinfo)).decode()
+                except (ValueError, UnicodeDecodeError):
+                    decoded_userinfo = urllib.parse.unquote(userinfo)
+            cipher, password = decoded_userinfo.split(":", 1)
+            return parsed.hostname, parsed.port, cipher, password
+        payload = raw.split("://", 1)[1].split("?", 1)[0]
+        decoded = base64.urlsafe_b64decode(add_base64_padding(payload)).decode()
+        legacy = urllib.parse.urlsplit("ss://" + decoded)
+        if legacy.hostname and legacy.port and legacy.username is not None:
+            return legacy.hostname, legacy.port, legacy.username, legacy.password or ""
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return None
+
+
+def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
+    """Convert supported URI fields into a Mihomo/Clash proxy mapping."""
+    proxy: dict[str, object] = {"name": name}
+    if config.scheme == "vmess":
+        data = decode_vmess(config.original)
+        try:
+            proxy.update(
+                {
+                    "type": "vmess",
+                    "server": str(data["add"]),
+                    "port": int(str(data["port"])),
+                    "uuid": str(data["id"]),
+                    "alterId": int(str(data.get("aid", 0) or 0)),
+                    "cipher": str(data.get("scy") or "auto"),
+                    "udp": True,
+                }
+            )
+        except (KeyError, ValueError):
+            return None
+        network_options(proxy, config.details)
+        tls_options(proxy, config.details)
+        return proxy
+
+    if config.scheme == "ss":
+        parts = decode_ss_parts(config)
+        if not parts:
+            return None
+        server, port, cipher, password = parts
+        proxy.update(
+            {"type": "ss", "server": server, "port": port, "cipher": cipher, "password": password, "udp": True}
+        )
+        return proxy
+
+    parsed = uri_parts(config)
+    try:
+        server, port = parsed.hostname, parsed.port
+    except ValueError:
+        return None
+    if not server or not port:
+        return None
+    username = urllib.parse.unquote(parsed.username or "")
+    password = urllib.parse.unquote(parsed.password or "")
+
+    if config.scheme == "vless":
+        if not username:
+            return None
+        proxy.update({"type": "vless", "server": server, "port": port, "uuid": username, "udp": True})
+        if config.details.get("flow"):
+            proxy["flow"] = config.details["flow"]
+        network_options(proxy, config.details)
+        tls_options(proxy, config.details)
+    elif config.scheme == "trojan":
+        if not username:
+            return None
+        proxy.update({"type": "trojan", "server": server, "port": port, "password": username, "udp": True})
+        network_options(proxy, config.details)
+        tls_options(proxy, config.details, default_tls=True)
+    elif config.scheme in {"hysteria2", "hy2"}:
+        auth = password or username
+        if not auth:
+            return None
+        proxy.update({"type": "hysteria2", "server": server, "port": port, "password": auth})
+        tls_options(proxy, config.details, default_tls=True)
+        if config.details.get("obfs"):
+            proxy["obfs"] = config.details["obfs"]
+        if config.details.get("obfs-password"):
+            proxy["obfs-password"] = config.details["obfs-password"]
+    elif config.scheme == "hysteria":
+        proxy.update({"type": "hysteria", "server": server, "port": port})
+        if username:
+            proxy["auth-str"] = username
+        for key in ("up", "down", "protocol"):
+            if config.details.get(key):
+                proxy[key] = config.details[key]
+        tls_options(proxy, config.details, default_tls=True)
+    else:
+        return None
+    return proxy
+
+
+def build_yaml_documents(configs: list[ProxyConfig]) -> tuple[dict[str, object], dict[str, object]]:
+    counts: dict[str, int] = {}
+    proxies: list[dict[str, object]] = []
+    for config in configs:
+        base_name = config_display_name(config)
+        counts[base_name] = counts.get(base_name, 0) + 1
+        sequence = counts[base_name]
+        unique_name = base_name if sequence == 1 else f"{base_name}-{sequence}"
+        proxy = to_mihomo_proxy(config, unique_name)
+        if proxy:
+            proxies.append(proxy)
+
+    names = [str(proxy["name"]) for proxy in proxies]
+    provider = {"proxies": proxies}
+    full_config: dict[str, object] = {
+        "mixed-port": 7890,
+        "allow-lan": True,
+        "mode": "rule",
+        "log-level": "info",
+        "ipv6": True,
+        "proxies": proxies,
+        "proxy-groups": [
+            {
+                "name": "♻️ Auto",
+                "type": "url-test",
+                "proxies": names,
+                "url": "http://www.gstatic.com/generate_204",
+                "interval": 300,
+            },
+            {"name": "🚀 Proxy", "type": "select", "proxies": ["♻️ Auto", "DIRECT", *names]},
+        ],
+        "rules": ["MATCH,🚀 Proxy"],
+    }
+    return full_config, provider
+
+
 def normalize_source_url(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
     if parsed.netloc.lower() == "github.com" and "/blob/" in parsed.path:
@@ -291,13 +490,27 @@ def collect(
     return renamed, errors
 
 
-def write_outputs(links: list[str], plain_path: Path, base64_path: Path) -> None:
+def write_outputs(
+    links: list[str],
+    plain_path: Path,
+    base64_path: Path,
+    mihomo_path: Path,
+    provider_path: Path,
+) -> tuple[int, int]:
     plain = "\n".join(links) + ("\n" if links else "")
     encoded = base64.b64encode(plain.encode("utf-8")).decode("ascii")
     plain_path.parent.mkdir(parents=True, exist_ok=True)
     base64_path.parent.mkdir(parents=True, exist_ok=True)
     plain_path.write_text(plain, encoding="utf-8", newline="\n")
     base64_path.write_text(encoded + "\n", encoding="ascii", newline="\n")
+    configs = [config for link in links if (config := parse_config(link))]
+    mihomo, provider = build_yaml_documents(configs)
+    yaml_options = {"allow_unicode": True, "sort_keys": False, "width": 1000}
+    mihomo_path.parent.mkdir(parents=True, exist_ok=True)
+    provider_path.parent.mkdir(parents=True, exist_ok=True)
+    mihomo_path.write_text(yaml.safe_dump(mihomo, **yaml_options), encoding="utf-8", newline="\n")
+    provider_path.write_text(yaml.safe_dump(provider, **yaml_options), encoding="utf-8", newline="\n")
+    return len(configs), len(provider["proxies"])
 
 
 def main() -> int:
@@ -305,6 +518,8 @@ def main() -> int:
     parser.add_argument("--sources", type=Path, default=Path("sources.txt"))
     parser.add_argument("--output", type=Path, default=Path("subscriptions/all.txt"))
     parser.add_argument("--base64-output", type=Path, default=Path("subscriptions/base64.txt"))
+    parser.add_argument("--mihomo-output", type=Path, default=Path("subscriptions/mihomo.yaml"))
+    parser.add_argument("--provider-output", type=Path, default=Path("subscriptions/proxies.yaml"))
     parser.add_argument("--geo-db", type=Path, default=Path(".cache/GeoLite2-Country.mmdb"))
     parser.add_argument("--brand", default="@STenmenB")
     parser.add_argument("--timeout", type=int, default=30)
@@ -323,8 +538,13 @@ def main() -> int:
     if not links:
         print("No supported proxy configurations were found; outputs were not changed.", file=sys.stderr)
         return 1
-    write_outputs(links, args.output, args.base64_output)
-    print(f"Wrote {len(links)} unique configurations ({len(errors)} source errors).")
+    _, yaml_count = write_outputs(
+        links, args.output, args.base64_output, args.mihomo_output, args.provider_output
+    )
+    print(
+        f"Wrote {len(links)} unique configurations and {yaml_count} YAML proxies "
+        f"({len(errors)} source errors)."
+    )
     return 0
 
 

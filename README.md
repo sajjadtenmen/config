@@ -26,6 +26,14 @@ The automation creates:
 - `subscriptions/all.txt`: one renamed proxy link per line.
 - `subscriptions/base64.txt`: the same complete list encoded as a standard Base64
   subscription.
+- `subscriptions/mihomo.yaml`: a complete ready-to-import Mihomo/Clash configuration.
+- `subscriptions/proxies.yaml`: a Mihomo/Clash proxy-provider document containing
+  only the generated `proxies` list.
+
+Clash-compatible YAML requires unique proxy names. When multiple configurations
+have the same three-part name, the YAML outputs add a numeric suffix to the final
+protocol section, for example `@STenmenB 🇩🇪 VLESS/WS/TLS-2`. The URI and Base64
+outputs retain the exact three-part names.
 
 Duplicate detection ignores the old display name. For VMess, it ignores `ps`; for
 URI-based protocols, it ignores the `#fragment`. Therefore, the same server config

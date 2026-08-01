@@ -71,6 +71,29 @@ class CollectorTests(unittest.TestCase):
         decoded_name = __import__("urllib.parse").parse.unquote(links[0].split("#", 1)[1])
         self.assertEqual(decoded_name, "@STenmenB 🇦🇺 VLESS/WS/TLS")
 
+    def test_builds_mihomo_vless_reality_proxy(self):
+        config = collector.parse_config(
+            "vless://abc@server.example:443?type=tcp&security=reality&"
+            "sni=example.com&pbk=publickey&sid=12ab#%40STenmenB%20%F0%9F%87%A9%F0%9F%87%AA%20VLESS%2FRAW%2FREALITY"
+        )
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, collector.config_display_name(config))
+        assert proxy is not None
+        self.assertEqual(proxy["type"], "vless")
+        self.assertTrue(proxy["tls"])
+        self.assertEqual(proxy["reality-opts"], {"public-key": "publickey", "short-id": "12ab"})
+
+    def test_yaml_names_are_unique(self):
+        links = [
+            "vless://one@example.com:443?type=ws&security=tls#Same",
+            "vless://two@example.com:443?type=ws&security=tls#Same",
+        ]
+        configs = [collector.parse_config(link) for link in links]
+        full, provider = collector.build_yaml_documents([item for item in configs if item])
+        names = [proxy["name"] for proxy in provider["proxies"]]
+        self.assertEqual(names, ["Same", "Same-2"])
+        self.assertEqual(full["rules"], ["MATCH,🚀 Proxy"])
+
 
 if __name__ == "__main__":
     unittest.main()
