@@ -9,3 +9,5 @@ https://raw.githubusercontent.com/sakha1370/OpenRay/refs/heads/main/output_iran/
 https://raw.githubusercontent.com/Efration/ZerondOne/refs/heads/main/ZerondOne.txt
 https://orange-sun-23ba.pigef65546-930.workers.dev/70dafae6-f1c0-452c-a3d6-130efc11561f/sub
 https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY_RAW.txt
+https://raw.githubusercontent.com/HamoonSoleimani/Pr0xySh4rk/refs/heads/main/Pr0xySh4rk_SubBase64.txt
+https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/Eternity
