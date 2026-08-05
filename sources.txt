@@ -17,3 +17,4 @@ https://raw.githubusercontent.com/arshiacomplus/v2rayExtractor/refs/heads/main/v
 https://raw.githubusercontent.com/arshiacomplus/v2rayExtractor/refs/heads/main/trojan.html
 https://raw.githubusercontent.com/arshiacomplus/v2rayExtractor/refs/heads/main/ss.html
 https://raw.githubusercontent.com/arshiacomplus/v2rayExtractor/refs/heads/main/hy2.html
+https://raw.githubusercontent.com/Surfboardv2ray/Proxy-sorter/main/output/converted.txt#converted
