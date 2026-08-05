@@ -57,7 +57,11 @@ jobs:
             > .cache/mihomo.log 2>&1 &
           MIHOMO_PID=$!
           trap 'kill "$MIHOMO_PID" 2>/dev/null || true' EXIT
-          python rank_configs.py
+          if ! python rank_configs.py; then
+            echo "Mihomo startup/test log:"
+            cat .cache/mihomo.log
+            exit 1
+          fi
 
       - name: Commit updated subscriptions
         run: |

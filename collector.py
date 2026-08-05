@@ -32,6 +32,33 @@ SUPPORTED_SCHEMES = {
 }
 
 
+class QuotedString(str):
+    """A YAML string that must remain quoted to avoid scalar coercion."""
+
+
+class SubscriptionDumper(yaml.SafeDumper):
+    pass
+
+
+def represent_quoted_string(
+    dumper: yaml.SafeDumper, value: QuotedString
+) -> yaml.nodes.ScalarNode:
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style="'")
+
+
+SubscriptionDumper.add_representer(QuotedString, represent_quoted_string)
+
+
+def dump_yaml(document: object) -> str:
+    return yaml.dump(
+        document,
+        Dumper=SubscriptionDumper,
+        allow_unicode=True,
+        sort_keys=False,
+        width=1000,
+    )
+
+
 @dataclass(frozen=True)
 class ProxyConfig:
     original: str
@@ -266,7 +293,9 @@ def tls_options(proxy: dict[str, object], details: dict[str, str], default_tls: 
         if details.get("pbk"):
             reality["public-key"] = details["pbk"]
         if details.get("sid"):
-            reality["short-id"] = details["sid"]
+            # Values such as 11e9 are valid hexadecimal IDs but some YAML
+            # parsers coerce an unquoted scalar into scientific notation.
+            reality["short-id"] = QuotedString(details["sid"])
         if reality:
             proxy["reality-opts"] = reality
 
@@ -518,11 +547,10 @@ def write_outputs(
     base64_path.write_text(encoded + "\n", encoding="ascii", newline="\n")
     configs = [config for link in links if (config := parse_config(link))]
     mihomo, provider = build_yaml_documents(configs)
-    yaml_options = {"allow_unicode": True, "sort_keys": False, "width": 1000}
     mihomo_path.parent.mkdir(parents=True, exist_ok=True)
     provider_path.parent.mkdir(parents=True, exist_ok=True)
-    mihomo_path.write_text(yaml.safe_dump(mihomo, **yaml_options), encoding="utf-8", newline="\n")
-    provider_path.write_text(yaml.safe_dump(provider, **yaml_options), encoding="utf-8", newline="\n")
+    mihomo_path.write_text(dump_yaml(mihomo), encoding="utf-8", newline="\n")
+    provider_path.write_text(dump_yaml(provider), encoding="utf-8", newline="\n")
     return len(configs), len(provider["proxies"])
 
 

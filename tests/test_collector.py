@@ -84,6 +84,17 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(proxy["tls"])
         self.assertEqual(proxy["reality-opts"], {"public-key": "publickey", "short-id": "12ab"})
 
+    def test_reality_short_id_that_looks_exponential_is_quoted(self):
+        config = collector.parse_config(
+            "vless://abc@server.example:443?type=tcp&security=reality&"
+            "sni=example.com&pbk=publickey&sid=11e9#Reality"
+        )
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, "Reality")
+        assert proxy is not None
+        rendered = collector.dump_yaml({"proxies": [proxy]})
+        self.assertIn("short-id: '11e9'", rendered)
+
     def test_yaml_names_are_unique(self):
         links = [
             "vless://one@example.com:443?type=ws&security=tls#Same",

@@ -160,10 +160,9 @@ def write_tested_outputs(
         encoding="ascii",
         newline="\n",
     )
-    yaml_options = {"allow_unicode": True, "sort_keys": False, "width": 1000}
-    mihomo_path.write_text(yaml.safe_dump(mihomo, **yaml_options), encoding="utf-8", newline="\n")
+    mihomo_path.write_text(collector.dump_yaml(mihomo), encoding="utf-8", newline="\n")
     provider_path.write_text(
-        yaml.safe_dump(provider, **yaml_options), encoding="utf-8", newline="\n"
+        collector.dump_yaml(provider), encoding="utf-8", newline="\n"
     )
     latency_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
