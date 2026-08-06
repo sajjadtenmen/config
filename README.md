@@ -1,77 +1,102 @@
-# Config subscription collector
+# Free proxy subscriptions
 
-This repository combines proxy configurations from multiple public text files or
-subscription URLs. It removes duplicates, detects the server country, and renames
-every entry in this format:
+Ready-to-use proxy subscriptions collected from public sources, cleaned of
+duplicates, renamed consistently, and refreshed every 24 hours.
+
+Each proxy name shows its detected country and connection type:
 
 ```text
 @STenmenB 🇩🇪 VLESS/WS/TLS
 @STenmenB 🇺🇸 VLESS/RAW/REALITY
 ```
 
-## Add sources
+## Which subscription should I use?
 
-Edit [`sources.txt`](sources.txt) and put one URL on each line. The URL may return
-plain proxy links or a Base64-encoded subscription. GitHub `blob` links are
-accepted and converted to raw links automatically. Lines beginning with `#` are
-ignored.
+For the easiest and most reliable experience, use a **tested** subscription.
+Tested proxies are checked by GitHub Actions and ordered from lowest to highest
+delay.
 
-Supported schemes are VLESS, VMess, Trojan, Shadowsocks, ShadowsocksR, Hysteria,
-Hysteria 2, and TUIC.
+| Client or format | Recommended tested subscription | Complete subscription |
+| --- | --- | --- |
+| Mihomo, Clash Meta, Clash Verge Rev | [mihomo-tested.yaml](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/mihomo-tested.yaml) | [mihomo.yaml](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/mihomo.yaml) |
+| V2rayNG, Hiddify, NekoBox and Base64 clients | [tested-base64.txt](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/tested-base64.txt) | [base64.txt](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/base64.txt) |
+| Plain proxy links, one per line | [tested.txt](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/tested.txt) | [all.txt](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/all.txt) |
+| Mihomo proxy-provider | [proxies-tested.yaml](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/proxies-tested.yaml) | [proxies.yaml](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/proxies.yaml) |
 
-## Outputs
+Copy the link for your client, open its **Subscriptions** or **Profiles** page,
+choose **Add from URL**, paste the link, and update the profile.
 
-The automation creates:
+## Tested or complete?
 
-- `subscriptions/all.txt`: one renamed proxy link per line.
-- `subscriptions/base64.txt`: the same complete list encoded as a standard Base64
-  subscription.
-- `subscriptions/mihomo.yaml`: a complete ready-to-import Mihomo/Clash configuration.
-- `subscriptions/proxies.yaml`: a Mihomo/Clash proxy-provider document containing
-  only the generated `proxies` list.
-- `subscriptions/tested.txt`: only URL-tested working URI configurations, ordered
-  from lowest to highest delay.
-- `subscriptions/tested-base64.txt`: the same tested, delay-ordered URI list as a
-  Base64 subscription.
-- `subscriptions/mihomo-tested.yaml`: a ready-to-import Mihomo/Clash configuration
-  containing only tested proxies in delay order.
-- `subscriptions/proxies-tested.yaml`: the tested, delay-ordered proxy-provider
-  document.
-- `subscriptions/latency.json`: the latest delay and status for every testable
-  proxy. Failed and timed-out nodes remain in the all-config subscriptions.
+- **Tested** files contain only proxies that worked from the GitHub runner during
+  the latest update. They are already sorted by measured delay.
+- **Complete** files contain every collected and supported proxy after duplicate
+  removal, including entries that failed or timed out during testing.
 
-Clash-compatible YAML requires unique proxy names. When multiple configurations
-have the same three-part name, the YAML outputs add a numeric suffix to the final
-protocol section, for example `@STenmenB 🇩🇪 VLESS/WS/TLS-2`. The URI and Base64
-outputs retain the exact three-part names.
+A proxy marked as failed by GitHub may still work on your internet connection.
+Routing, blocking, server load, and distance are different for every network. If
+the tested list is too small or a known proxy is missing, import the complete list
+and test it inside your own client.
 
-Duplicate detection ignores the old display name. For VMess, it ignores `ps`; for
-URI-based protocols, it ignores the `#fragment`. Therefore, the same server config
-with different names is only included once.
+GitHub tests each proxy with a five-second timeout. It tries Google first, then
+retries failures through Cloudflare and Apple's connectivity-test page. These
+results show reachability from the GitHub runner, not guaranteed speed or
+availability from your location.
 
-## Automation
+## Common problems
 
-The GitHub Actions workflow runs once every 24 hours and can also be started from
-the **Actions** tab with **Run workflow**. It downloads a current GeoLite country
-database and rebuilds the outputs. It URL-tests proxies in bounded batches of 64
-against Google's `generate_204` endpoint, retries failures once through
-Cloudflare and then once through Apple's connectivity-test page, keeps the first
-successful delay, sorts working proxies from fastest to slowest, and commits the
-results only when they change. Each attempt has a five-second per-proxy timeout.
+**Clash reports an error while importing YAML**
 
-Delays are measured from the GitHub-hosted Actions runner, so they represent the
-runner's network location rather than the subscriber's location.
+Use `mihomo-tested.yaml` or `mihomo.yaml` with a modern Mihomo/Clash Meta client.
+Older Clash clients may not support newer protocols such as VLESS, REALITY, TUIC,
+or Hysteria 2.
 
-If the default branch is protected against direct pushes, allow GitHub Actions to
-push or adapt the final workflow step to open a pull request.
+**The subscription has many proxies but few work**
 
-## Run locally
+Public proxies can expire quickly. Refresh the subscription, try the tested list,
+and run your client's delay test. The list is rebuilt every 24 hours, but a server
+can stop working at any time.
+
+**My local test finds more working proxies than the tested list**
+
+This is normal. Your ISP and location may reach servers that GitHub cannot. Use
+the complete subscription when you want to test everything from your own network.
+
+**Several proxies have similar names**
+
+Names are intentionally standardized as `@STenmenB + country flag + protocol`.
+YAML files add a numeric suffix when needed because Clash-compatible clients
+require every proxy name to be unique.
+
+## What the automation does
+
+Every 24 hours the workflow:
+
+1. Downloads all URLs listed in `sources.txt`.
+2. Reads plain-text, Base64, and supported YAML subscription sources.
+3. Removes duplicate configurations even when their original names differ.
+4. Detects the server country and adds its flag.
+5. Creates plain-text, Base64, and Mihomo/Clash subscriptions.
+6. URL-tests supported proxies, sorts working entries by delay, and publishes the
+   tested subscriptions.
+
+Supported protocols include VLESS, VMess, Trojan, Shadowsocks, ShadowsocksR,
+Hysteria, Hysteria 2, and TUIC.
+
+## Add or change sources
+
+This section is for repository maintainers. Edit [`sources.txt`](sources.txt) and
+put one subscription URL on each line. Plain proxy lists, Base64 subscriptions,
+supported YAML subscriptions, and GitHub `blob` links are accepted. Empty lines
+and lines beginning with `#` are ignored.
+
+To rebuild locally:
 
 ```powershell
 python -m pip install -r requirements.txt
 python collector.py
 ```
 
-Without `.cache/GeoLite2-Country.mmdb`, collection still works but unresolved
-countries use the globe flag (`🌐`). The scheduled workflow downloads the database
-automatically.
+Country detection uses `.cache/GeoLite2-Country.mmdb`. Without it, collection
+still works, but unresolved servers receive the globe flag (`🌐`). The scheduled
+GitHub workflow downloads the country database automatically.
