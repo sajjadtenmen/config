@@ -53,9 +53,11 @@ with different names is only included once.
 
 The GitHub Actions workflow runs once every 24 hours and can also be started from
 the **Actions** tab with **Run workflow**. It downloads a current GeoLite country
-database, rebuilds the outputs, runs a real Mihomo URL test against Google's
-`generate_204` endpoint with a five-second timeout, sorts working proxies by
-delay, and commits the results only when they change.
+database and rebuilds the outputs. It URL-tests proxies in bounded batches of 64
+against Google's `generate_204` endpoint, retries failures once through
+Cloudflare and then once through Apple's connectivity-test page, keeps the first
+successful delay, sorts working proxies from fastest to slowest, and commits the
+results only when they change. Each attempt has a five-second per-proxy timeout.
 
 Delays are measured from the GitHub-hosted Actions runner, so they represent the
 runner's network location rather than the subscriber's location.

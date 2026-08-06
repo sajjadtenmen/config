@@ -16,7 +16,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -57,7 +57,7 @@ jobs:
             > .cache/mihomo.log 2>&1 &
           MIHOMO_PID=$!
           trap 'kill "$MIHOMO_PID" 2>/dev/null || true' EXIT
-          if ! python rank_configs.py; then
+          if ! python rank_configs.py --batch-size 64 --retries 2; then
             echo "Mihomo startup/test log:"
             cat .cache/mihomo.log
             exit 1

@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import collector
 import rank_configs
@@ -142,6 +143,45 @@ class CollectorTests(unittest.TestCase):
         )
         self.assertEqual([item.name for item in alive], ["Same-2", "Same"])
         self.assertEqual([item.name for item in failed], ["Third"])
+
+    def test_proxy_delay_uses_encoded_name_and_expected_status(self):
+        with mock.patch.object(rank_configs, "api_json", return_value={"delay": 123}) as api:
+            delay = rank_configs.test_proxy(
+                "http://127.0.0.1:9090", "Proxy Name", "https://example.com/test", 5000, "200/204"
+            )
+        self.assertEqual(delay, 123)
+        requested_url = api.call_args.args[0]
+        self.assertIn("/proxies/Proxy%20Name/delay?", requested_url)
+        self.assertIn("expected=200%2F204", requested_url)
+
+    def test_bounded_retry_uses_second_url_only_for_failures(self):
+        links = [
+            "vless://one@example.com:443?type=ws&security=tls#One",
+            "vless://two@example.com:443?type=ws&security=tls#Two",
+        ]
+        candidates = rank_configs.build_candidates(links)
+
+        def fake_test(_controller, name, url, _timeout, _expected):
+            if name == "One" and "google" in url:
+                return 100
+            if name == "Two" and "cloudflare" in url:
+                return 150
+            return None
+
+        with mock.patch.object(rank_configs, "test_proxy", side_effect=fake_test) as test:
+            delays, urls = rank_configs.test_proxies_bounded(
+                candidates,
+                "http://127.0.0.1:9090",
+                ["https://google.test", "https://cloudflare.test"],
+                5000,
+                "200/204",
+                2,
+                1,
+            )
+        self.assertEqual(delays, {"One": 100, "Two": 150})
+        self.assertEqual(urls["Two"], "https://cloudflare.test")
+        second_attempt_names = [call.args[1] for call in test.call_args_list[2:]]
+        self.assertEqual(second_attempt_names, ["Two"])
 
 
 if __name__ == "__main__":

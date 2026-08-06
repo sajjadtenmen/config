@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import copy
 import datetime as dt
 import json
@@ -62,31 +63,88 @@ def wait_for_mihomo(controller: str, startup_timeout: int) -> None:
     raise RuntimeError(f"Mihomo API did not start within {startup_timeout} seconds")
 
 
-def test_group(
+DEFAULT_TEST_URLS = (
+    "https://www.gstatic.com/generate_204",
+    "https://cp.cloudflare.com",
+    "https://www.apple.com/library/test/success.html",
+)
+
+
+def test_proxy(
     controller: str,
-    group: str,
+    name: str,
     test_url: str,
     timeout_ms: int,
     expected: str,
-) -> dict[str, int]:
+) -> int | None:
     query = urllib.parse.urlencode(
         {"url": test_url, "timeout": timeout_ms, "expected": expected}
     )
     endpoint = (
         controller.rstrip("/")
-        + "/group/"
-        + urllib.parse.quote(group, safe="")
+        + "/proxies/"
+        + urllib.parse.quote(name, safe="")
         + "/delay?"
         + query
     )
-    result = api_json(endpoint, timeout=max(60, timeout_ms / 1000 + 60))
+    try:
+        result = api_json(endpoint, timeout=max(10, timeout_ms / 1000 + 5))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return None
     if not isinstance(result, dict):
-        raise RuntimeError("Mihomo group-delay response was not an object")
-    return {
-        str(name): int(delay)
-        for name, delay in result.items()
-        if isinstance(delay, (int, float)) and int(delay) > 0
-    }
+        return None
+    delay = result.get("delay")
+    return int(delay) if isinstance(delay, (int, float)) and int(delay) > 0 else None
+
+
+def test_proxies_bounded(
+    candidates: list[Candidate],
+    controller: str,
+    test_urls: list[str],
+    timeout_ms: int,
+    expected: str,
+    batch_size: int,
+    retries: int,
+) -> tuple[dict[str, int], dict[str, str]]:
+    if not test_urls:
+        raise ValueError("At least one test URL is required")
+    delays: dict[str, int] = {}
+    successful_urls: dict[str, str] = {}
+    attempts = [test_urls[0]] + [
+        test_urls[(attempt + 1) % len(test_urls)] for attempt in range(retries)
+    ]
+
+    for attempt_number, test_url in enumerate(attempts, start=1):
+        pending = [candidate for candidate in candidates if candidate.name not in delays]
+        if not pending:
+            break
+        print(
+            f"URL-test attempt {attempt_number}/{len(attempts)}: "
+            f"{len(pending)} proxies via {test_url}"
+        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as pool:
+            futures = {
+                pool.submit(
+                    test_proxy,
+                    controller,
+                    candidate.name,
+                    test_url,
+                    timeout_ms,
+                    expected,
+                ): candidate.name
+                for candidate in pending
+            }
+            for future in concurrent.futures.as_completed(futures):
+                name = futures[future]
+                try:
+                    delay = future.result()
+                except Exception:
+                    delay = None
+                if delay is not None:
+                    delays[name] = delay
+                    successful_urls[name] = test_url
+        print(f"Alive after attempt {attempt_number}: {len(delays)}/{len(candidates)}")
+    return delays, successful_urls
 
 
 def ranked_candidates(
@@ -120,9 +178,12 @@ def write_tested_outputs(
     alive: list[Candidate],
     failed: list[Candidate],
     delays: dict[str, int],
+    successful_urls: dict[str, str],
     full_config: dict[str, object],
-    test_url: str,
+    test_urls: list[str],
     timeout_ms: int,
+    batch_size: int,
+    retries: int,
     plain_path: Path,
     base64_path: Path,
     mihomo_path: Path,
@@ -138,13 +199,20 @@ def write_tested_outputs(
     provider = {"proxies": proxies}
     report = {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "test_url": test_url,
+        "test_urls": test_urls,
         "timeout_ms": timeout_ms,
+        "batch_size": batch_size,
+        "retries": retries,
         "total": len(alive) + len(failed),
         "alive": len(alive),
         "failed": len(failed),
         "results": [
-            {"name": candidate.name, "delay_ms": delays[candidate.name], "status": "alive"}
+            {
+                "name": candidate.name,
+                "delay_ms": delays[candidate.name],
+                "test_url": successful_urls[candidate.name],
+                "status": "alive",
+            }
             for candidate in alive
         ]
         + [
@@ -172,10 +240,16 @@ def write_tested_outputs(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--controller", default="http://127.0.0.1:9090")
-    parser.add_argument("--group", default="♻️ Auto")
-    parser.add_argument("--url", default="https://www.gstatic.com/generate_204")
+    parser.add_argument(
+        "--url",
+        action="append",
+        dest="test_urls",
+        help="Test URL; may be repeated (defaults to Google, Cloudflare, then Apple)",
+    )
     parser.add_argument("--timeout", type=int, default=5000, help="Per-proxy timeout in ms")
-    parser.add_argument("--expected", default="204")
+    parser.add_argument("--expected", default="200/204")
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--startup-timeout", type=int, default=30)
     parser.add_argument("--all", type=Path, default=Path("subscriptions/all.txt"))
     parser.add_argument("--mihomo", type=Path, default=Path("subscriptions/mihomo.yaml"))
@@ -191,6 +265,11 @@ def main() -> int:
     )
     parser.add_argument("--latency", type=Path, default=Path("subscriptions/latency.json"))
     args = parser.parse_args()
+    test_urls = args.test_urls or list(DEFAULT_TEST_URLS)
+    if args.batch_size < 1:
+        parser.error("--batch-size must be at least 1")
+    if args.retries < 0:
+        parser.error("--retries cannot be negative")
 
     links = [line.strip() for line in args.all.read_text(encoding="utf-8").splitlines() if line.strip()]
     candidates = build_candidates(links)
@@ -203,15 +282,26 @@ def main() -> int:
         raise RuntimeError("TXT and Mihomo subscriptions are not synchronized")
 
     wait_for_mihomo(args.controller, args.startup_timeout)
-    delays = test_group(args.controller, args.group, args.url, args.timeout, args.expected)
+    delays, successful_urls = test_proxies_bounded(
+        candidates,
+        args.controller,
+        test_urls,
+        args.timeout,
+        args.expected,
+        args.batch_size,
+        args.retries,
+    )
     alive, failed = ranked_candidates(candidates, delays)
     write_tested_outputs(
         alive,
         failed,
         delays,
+        successful_urls,
         full_config,
-        args.url,
+        test_urls,
         args.timeout,
+        args.batch_size,
+        args.retries,
         args.tested,
         args.tested_base64,
         args.tested_mihomo,
