@@ -8,6 +8,7 @@ import base64
 import concurrent.futures
 import ipaddress
 import json
+import re
 import socket
 import sys
 import urllib.parse
@@ -109,6 +110,27 @@ def decode_vmess(link: str) -> dict[str, object]:
     return data
 
 
+def normalize_reality_short_id(value: str) -> str | None:
+    """Return a Mihomo-compatible REALITY short ID, if one can be recovered."""
+    candidate = value.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{2,16}", candidate) and len(candidate) % 2 == 0:
+        return candidate
+
+    # Some public lists append a channel name to an otherwise valid ID, for
+    # example ``c39cc7310a@freenettir``. Recover only a complete leading hex
+    # token; never guess by truncating an overlong or odd-length value.
+    prefix = re.match(r"[0-9a-fA-F]+", candidate)
+    if prefix:
+        recovered = prefix.group(0)
+        if (
+            len(recovered) < len(candidate)
+            and 2 <= len(recovered) <= 16
+            and len(recovered) % 2 == 0
+        ):
+            return recovered
+    return None
+
+
 def parse_config(link: str) -> ProxyConfig | None:
     scheme = link.partition("://")[0].lower()
     if scheme not in SUPPORTED_SCHEMES:
@@ -134,6 +156,19 @@ def parse_config(link: str) -> ProxyConfig | None:
         return None
     host = parsed.hostname or ""
     query_pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    raw_details = {key.lower(): value for key, value in query_pairs}
+    if (raw_details.get("security") or "").lower() == "reality" and "sid" in raw_details:
+        normalized_sid = normalize_reality_short_id(raw_details["sid"])
+        query_pairs = [
+            (key, normalized_sid if key.lower() == "sid" else value)
+            for key, value in query_pairs
+            if key.lower() != "sid" or normalized_sid is not None
+        ]
+        if normalized_sid != raw_details["sid"]:
+            normalized_query = urllib.parse.urlencode(query_pairs)
+            link = urllib.parse.urlunsplit(
+                (parsed.scheme, parsed.netloc, parsed.path, normalized_query, parsed.fragment)
+            )
     query = urllib.parse.urlencode(sorted(query_pairs))
     canonical = urllib.parse.urlunsplit(
         (parsed.scheme.lower(), parsed.netloc, parsed.path, query, "")

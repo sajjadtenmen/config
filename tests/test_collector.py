@@ -96,6 +96,31 @@ class CollectorTests(unittest.TestCase):
         rendered = collector.dump_yaml({"proxies": [proxy]})
         self.assertIn("short-id: '11e9'", rendered)
 
+    def test_reality_short_id_strips_non_hex_source_suffix(self):
+        config = collector.parse_config(
+            "vless://abc@server.example:443?type=tcp&security=reality&"
+            "pbk=publickey&sid=c39cc7310a@freenettir%20%C2%B2#Reality"
+        )
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, "Reality")
+        assert proxy is not None
+        self.assertEqual(config.details["sid"], "c39cc7310a")
+        self.assertIn("sid=c39cc7310a", config.original)
+        self.assertNotIn("freenettir", config.original)
+        self.assertEqual(proxy["reality-opts"]["short-id"], "c39cc7310a")
+
+    def test_reality_short_id_omits_unrecoverable_value(self):
+        config = collector.parse_config(
+            "vless://abc@server.example:443?type=tcp&security=reality&"
+            "pbk=publickey&sid=not-a-short-id#Reality"
+        )
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, "Reality")
+        assert proxy is not None
+        self.assertNotIn("sid", config.details)
+        self.assertNotIn("sid=", config.original)
+        self.assertEqual(proxy["reality-opts"], {"public-key": "publickey"})
+
     def test_yaml_names_are_unique(self):
         links = [
             "vless://one@example.com:443?type=ws&security=tls#Same",
