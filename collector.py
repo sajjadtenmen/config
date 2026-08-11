@@ -32,6 +32,43 @@ SUPPORTED_SCHEMES = {
     "tuic",
 }
 
+MIHOMO_SS_CIPHERS = {
+    "2022-blake3-aes-128-gcm",
+    "2022-blake3-aes-256-gcm",
+    "2022-blake3-chacha20-poly1305",
+    "aegis-128l",
+    "aegis-256",
+    "aes-128-ccm",
+    "aes-128-cfb",
+    "aes-128-ctr",
+    "aes-128-gcm",
+    "aes-128-gcm-siv",
+    "aes-192-ccm",
+    "aes-192-cfb",
+    "aes-192-ctr",
+    "aes-192-gcm",
+    "aes-256-ccm",
+    "aes-256-cfb",
+    "aes-256-ctr",
+    "aes-256-gcm",
+    "aes-256-gcm-siv",
+    "aez-384",
+    "chacha20",
+    "chacha20-ietf",
+    "chacha20-ietf-poly1305",
+    "chacha8-ietf-poly1305",
+    "deoxys-ii-256-128",
+    "lea-128-gcm",
+    "lea-192-gcm",
+    "lea-256-gcm",
+    "none",
+    "rabbit128-poly1305",
+    "rc4-md5",
+    "xchacha20",
+    "xchacha20-ietf-poly1305",
+    "xchacha8-ietf-poly1305",
+}
+
 
 class QuotedString(str):
     """A YAML string that must remain quoted to avoid scalar coercion."""
@@ -400,6 +437,9 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
         if not parts:
             return None
         server, port, cipher, password = parts
+        cipher = cipher.strip().lower()
+        if cipher not in MIHOMO_SS_CIPHERS:
+            return None
         proxy.update(
             {"type": "ss", "server": server, "port": port, "cipher": cipher, "password": password, "udp": True}
         )

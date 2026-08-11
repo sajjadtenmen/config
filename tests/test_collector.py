@@ -121,6 +121,38 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn("sid=", config.original)
         self.assertEqual(proxy["reality-opts"], {"public-key": "publickey"})
 
+    def test_unsupported_shadowsocks_cipher_is_kept_out_of_yaml(self):
+        userinfo = base64.urlsafe_b64encode(
+            b"chacha20-poly1305:secret"
+        ).decode().rstrip("=")
+        link = f"ss://{userinfo}@82.38.31.46:8080#Unsupported"
+        config = collector.parse_config(link)
+        assert config is not None
+        self.assertIsNone(collector.to_mihomo_proxy(config, "Unsupported"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_count, yaml_count = collector.write_outputs(
+                [link],
+                root / "all.txt",
+                root / "base64.txt",
+                root / "mihomo.yaml",
+                root / "proxies.yaml",
+            )
+            self.assertEqual((config_count, yaml_count), (1, 0))
+            self.assertEqual((root / "all.txt").read_text(encoding="utf-8").strip(), link)
+
+    def test_supported_shadowsocks_cipher_is_added_to_yaml(self):
+        userinfo = base64.urlsafe_b64encode(
+            b"chacha20-ietf-poly1305:secret"
+        ).decode().rstrip("=")
+        link = f"ss://{userinfo}@example.com:443#Supported"
+        config = collector.parse_config(link)
+        assert config is not None
+        proxy = collector.to_mihomo_proxy(config, "Supported")
+        assert proxy is not None
+        self.assertEqual(proxy["cipher"], "chacha20-ietf-poly1305")
+
     def test_yaml_names_are_unique(self):
         links = [
             "vless://one@example.com:443?type=ws&security=tls#Same",
