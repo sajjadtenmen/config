@@ -125,6 +125,37 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(report["sources"][0]["status"], "ok")
         self.assertIsNotNone(report["sources"][0]["upstream_last_modified"])
 
+    def test_parses_github_raw_source_for_commit_lookup(self):
+        self.assertEqual(
+            collector.github_source_parts(
+                "https://raw.githubusercontent.com/owner/repository/refs/heads/main/path/file.txt"
+            ),
+            ("owner", "repository", "main", "path/file.txt"),
+        )
+        self.assertEqual(
+            collector.github_source_parts(
+                "https://github.com/owner/repository/blob/master/list.txt"
+            ),
+            ("owner", "repository", "master", "list.txt"),
+        )
+
+    def test_reads_github_file_commit_date(self):
+        response = mock.MagicMock()
+        response.read.return_value = json.dumps(
+            [{"commit": {"committer": {"date": "2026-08-11T12:34:56Z"}}}]
+        ).encode()
+        response.__enter__.return_value = response
+        with mock.patch.object(collector.urllib.request, "urlopen", return_value=response) as api:
+            modified = collector.github_file_last_modified(
+                "https://raw.githubusercontent.com/owner/repository/main/path/file.txt",
+                5,
+            )
+        self.assertEqual(modified, "2026-08-11T12:34:56Z")
+        requested = api.call_args.args[0]
+        self.assertIn("/repos/owner/repository/commits?", requested.full_url)
+        self.assertIn("path=path%2Ffile.txt", requested.full_url)
+        self.assertIn("sha=main", requested.full_url)
+
     def test_builds_mihomo_vless_reality_proxy(self):
         config = collector.parse_config(
             "vless://abc@server.example:443?type=tcp&security=reality&"

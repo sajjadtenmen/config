@@ -85,9 +85,10 @@ Every 24 hours the workflow:
 
 The source-status report records when each URL was last checked and last fetched
 successfully. It also includes the upstream `Last-Modified` timestamp and ETag
-when the source server provides them, the number of configurations found, and the
-most recent download error. A temporary failure does not erase the previous
-successful timestamp.
+when the source server provides them. For GitHub-hosted files, the update time is
+read from the latest commit that changed that exact file. The report also records
+the number of configurations found and the most recent download error. A
+temporary failure does not erase the previous successful timestamp.
 
 Supported protocols include VLESS, VMess, Trojan, Shadowsocks, ShadowsocksR,
 Hysteria, Hysteria 2, and TUIC.

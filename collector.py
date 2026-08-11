@@ -9,9 +9,11 @@ import concurrent.futures
 import datetime as dt
 import ipaddress
 import json
+import os
 import re
 import socket
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -546,6 +548,60 @@ def normalize_source_url(url: str) -> str:
     return url
 
 
+def github_source_parts(source: str) -> tuple[str, str, str, str] | None:
+    parsed = urllib.parse.urlsplit(normalize_source_url(source))
+    if parsed.netloc.lower() != "raw.githubusercontent.com":
+        return None
+    parts = [urllib.parse.unquote(part) for part in parsed.path.strip("/").split("/")]
+    if len(parts) < 4:
+        return None
+    owner, repository = parts[0], parts[1]
+    remainder = parts[2:]
+    if len(remainder) >= 4 and remainder[:2] == ["refs", "heads"]:
+        reference = remainder[2]
+        file_path = "/".join(remainder[3:])
+    else:
+        reference = remainder[0]
+        file_path = "/".join(remainder[1:])
+    if not file_path:
+        return None
+    return owner, repository, reference, file_path
+
+
+def github_file_last_modified(source: str, timeout: int) -> str | None:
+    parts = github_source_parts(source)
+    if not parts:
+        return None
+    owner, repository, reference, file_path = parts
+    query = urllib.parse.urlencode(
+        {"path": file_path, "sha": reference, "per_page": 1}
+    )
+    endpoint = (
+        f"https://api.github.com/repos/{urllib.parse.quote(owner)}/"
+        f"{urllib.parse.quote(repository)}/commits?{query}"
+    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "STenmenB-config-collector/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token := os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(endpoint, headers=headers)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        document = json.loads(response.read().decode("utf-8"))
+    if not isinstance(document, list) or not document:
+        return None
+    commit = document[0].get("commit", {})
+    if not isinstance(commit, dict):
+        return None
+    for role in ("committer", "author"):
+        identity = commit.get(role, {})
+        if isinstance(identity, dict) and identity.get("date"):
+            return str(identity["date"])
+    return None
+
+
 def read_sources(path: Path) -> list[str]:
     sources = []
     for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
@@ -562,11 +618,19 @@ def fetch_source_details(source: str, timeout: int) -> SourceFetch:
             headers={"User-Agent": "STenmenB-config-collector/1.0"},
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return SourceFetch(
-                response.read().decode("utf-8-sig", errors="replace"),
-                response.headers.get("Last-Modified"),
-                response.headers.get("ETag"),
-            )
+            text = response.read().decode("utf-8-sig", errors="replace")
+            last_modified = response.headers.get("Last-Modified")
+            etag = response.headers.get("ETag")
+        if last_modified is None and github_source_parts(source):
+            try:
+                last_modified = github_file_last_modified(source, timeout)
+            except (OSError, urllib.error.URLError, json.JSONDecodeError):
+                pass
+        return SourceFetch(
+            text,
+            last_modified,
+            etag,
+        )
     path = Path(source)
     modified = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc).isoformat()
     return SourceFetch(path.read_text(encoding="utf-8-sig"), modified, None)

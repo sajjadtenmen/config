@@ -38,6 +38,8 @@ jobs:
             https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb
 
       - name: Collect subscriptions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python collector.py
 
       - name: Download Mihomo
