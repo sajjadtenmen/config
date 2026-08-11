@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import concurrent.futures
+import datetime as dt
 import ipaddress
 import json
 import re
@@ -104,6 +105,13 @@ class ProxyConfig:
     host: str
     canonical: str
     details: dict[str, str]
+
+
+@dataclass(frozen=True)
+class SourceFetch:
+    text: str
+    upstream_last_modified: str | None
+    etag: str | None
 
 
 def add_base64_padding(value: str) -> str:
@@ -547,15 +555,57 @@ def read_sources(path: Path) -> list[str]:
     return sources
 
 
-def fetch_source(source: str, timeout: int) -> str:
+def fetch_source_details(source: str, timeout: int) -> SourceFetch:
     if source.startswith(("http://", "https://")):
         request = urllib.request.Request(
             normalize_source_url(source),
             headers={"User-Agent": "STenmenB-config-collector/1.0"},
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read().decode("utf-8-sig", errors="replace")
-    return Path(source).read_text(encoding="utf-8-sig")
+            return SourceFetch(
+                response.read().decode("utf-8-sig", errors="replace"),
+                response.headers.get("Last-Modified"),
+                response.headers.get("ETag"),
+            )
+    path = Path(source)
+    modified = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc).isoformat()
+    return SourceFetch(path.read_text(encoding="utf-8-sig"), modified, None)
+
+
+def fetch_source(source: str, timeout: int) -> str:
+    return fetch_source_details(source, timeout).text
+
+
+def read_source_status(path: Path) -> dict[str, dict[str, object]]:
+    if not path.exists():
+        return {}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    entries = document.get("sources", []) if isinstance(document, dict) else []
+    if not isinstance(entries, list):
+        return {}
+    return {
+        str(entry["url"]): entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("url")
+    }
+
+
+def write_source_status(path: Path, statuses: list[dict[str, object]]) -> None:
+    successful = sum(status.get("status") == "ok" for status in statuses)
+    document = {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "summary": {
+            "total": len(statuses),
+            "ok": successful,
+            "failed": len(statuses) - successful,
+        },
+        "sources": statuses,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def unique_configs(links: Iterable[str]) -> list[ProxyConfig]:
@@ -567,28 +617,61 @@ def unique_configs(links: Iterable[str]) -> list[ProxyConfig]:
     return list(unique.values())
 
 
-def collect(
+def collect_with_status(
     sources: list[str],
     timeout: int,
     country_lookup: Callable[[str], str | None],
     brand: str,
-) -> tuple[list[str], list[str]]:
+    previous_status: dict[str, dict[str, object]] | None = None,
+) -> tuple[list[str], list[str], list[dict[str, object]]]:
     all_links: list[str] = []
     errors: list[str] = []
+    statuses: list[dict[str, object]] = []
+    previous_status = previous_status or {}
+    checked_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
-    def load(source: str) -> tuple[str, list[str], str | None]:
+    def load(source: str) -> tuple[str, list[str], SourceFetch | None, str | None]:
         try:
-            return source, extract_links(fetch_source(source, timeout)), None
+            fetched = fetch_source_details(source, timeout)
+            return source, extract_links(fetched.text), fetched, None
         except Exception as exc:
-            return source, [], str(exc)
+            return source, [], None, str(exc)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(sources)))) as pool:
         results = list(pool.map(load, sources))
-    for source, links, error in results:
+    for source, links, fetched, error in results:
+        previous = previous_status.get(source, {})
         if error:
             errors.append(f"{source}: {error}")
+            statuses.append(
+                {
+                    "url": source,
+                    "status": "error",
+                    "checked_at": checked_at,
+                    "last_success_at": previous.get("last_success_at"),
+                    "upstream_last_modified": previous.get("upstream_last_modified"),
+                    "etag": previous.get("etag"),
+                    "configs_found": None,
+                    "last_success_configs": previous.get("last_success_configs"),
+                    "error": error,
+                }
+            )
         else:
             all_links.extend(links)
+            config_count = len(unique_configs(links))
+            statuses.append(
+                {
+                    "url": source,
+                    "status": "ok",
+                    "checked_at": checked_at,
+                    "last_success_at": checked_at,
+                    "upstream_last_modified": fetched.upstream_last_modified if fetched else None,
+                    "etag": fetched.etag if fetched else None,
+                    "configs_found": config_count,
+                    "last_success_configs": config_count,
+                    "error": None,
+                }
+            )
 
     if len(errors) == len(sources):
         raise RuntimeError("Every source failed:\n" + "\n".join(errors))
@@ -604,7 +687,17 @@ def collect(
     for config in configs:
         display_name = f"{brand} {country_flag(codes.get(config.host))} {protocol_label(config)}"
         renamed.append(rename_config(config, display_name))
-    return renamed, errors
+    return renamed, errors, statuses
+
+
+def collect(
+    sources: list[str],
+    timeout: int,
+    country_lookup: Callable[[str], str | None],
+    brand: str,
+) -> tuple[list[str], list[str]]:
+    links, errors, _ = collect_with_status(sources, timeout, country_lookup, brand)
+    return links, errors
 
 
 def write_outputs(
@@ -636,6 +729,11 @@ def main() -> int:
     parser.add_argument("--base64-output", type=Path, default=Path("subscriptions/base64.txt"))
     parser.add_argument("--mihomo-output", type=Path, default=Path("subscriptions/mihomo.yaml"))
     parser.add_argument("--provider-output", type=Path, default=Path("subscriptions/proxies.yaml"))
+    parser.add_argument(
+        "--source-status-output",
+        type=Path,
+        default=Path("subscriptions/sources-status.json"),
+    )
     parser.add_argument("--geo-db", type=Path, default=Path(".cache/GeoLite2-Country.mmdb"))
     parser.add_argument("--brand", default="@STenmenB")
     parser.add_argument("--timeout", type=int, default=30)
@@ -647,10 +745,18 @@ def main() -> int:
         return 2
     try:
         with CountryLookup(args.geo_db) as lookup:
-            links, errors = collect(sources, args.timeout, lookup.code_for_host, args.brand)
+            previous_status = read_source_status(args.source_status_output)
+            links, errors, statuses = collect_with_status(
+                sources,
+                args.timeout,
+                lookup.code_for_host,
+                args.brand,
+                previous_status,
+            )
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
+    write_source_status(args.source_status_output, statuses)
     if not links:
         print("No supported proxy configurations were found; outputs were not changed.", file=sys.stderr)
         return 1

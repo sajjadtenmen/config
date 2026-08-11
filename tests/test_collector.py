@@ -73,6 +73,58 @@ class CollectorTests(unittest.TestCase):
         decoded_name = __import__("urllib.parse").parse.unquote(links[0].split("#", 1)[1])
         self.assertEqual(decoded_name, "@STenmenB 🇦🇺 VLESS/WS/TLS")
 
+    def test_source_status_preserves_previous_success_when_fetch_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            working = root / "working.txt"
+            missing = root / "missing.txt"
+            working.write_text(
+                "vless://id@1.1.1.1:443?type=ws&security=tls#one\n",
+                encoding="utf-8",
+            )
+            previous = {
+                str(missing): {
+                    "last_success_at": "2026-08-01T00:00:00+00:00",
+                    "upstream_last_modified": "2026-07-31T00:00:00+00:00",
+                    "etag": '"old"',
+                    "last_success_configs": 12,
+                }
+            }
+            _, errors, statuses = collector.collect_with_status(
+                [str(working), str(missing)],
+                2,
+                lambda host: None,
+                "@STenmenB",
+                previous,
+            )
+        failed = statuses[1]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(failed["status"], "error")
+        self.assertEqual(failed["last_success_at"], "2026-08-01T00:00:00+00:00")
+        self.assertEqual(failed["last_success_configs"], 12)
+
+    def test_source_status_output_contains_success_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.txt"
+            source.write_text(
+                "vless://id@1.1.1.1:443?type=ws&security=tls#one\n",
+                encoding="utf-8",
+            )
+            links, errors, statuses = collector.collect_with_status(
+                [str(source)], 2, lambda host: "AU", "@STenmenB"
+            )
+            output = root / "sources-status.json"
+            collector.write_source_status(output, statuses)
+            report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(links), 1)
+        self.assertEqual(errors, [])
+        self.assertEqual(report["summary"], {"total": 1, "ok": 1, "failed": 0})
+        self.assertEqual(report["sources"][0]["configs_found"], 1)
+        self.assertEqual(report["sources"][0]["status"], "ok")
+        self.assertIsNotNone(report["sources"][0]["upstream_last_modified"])
+
     def test_builds_mihomo_vless_reality_proxy(self):
         config = collector.parse_config(
             "vless://abc@server.example:443?type=tcp&security=reality&"

@@ -26,6 +26,9 @@ delay.
 Copy the link for your client, open its **Subscriptions** or **Profiles** page,
 choose **Add from URL**, paste the link, and update the profile.
 
+You can check the latest availability and update information for every upstream
+source in [sources-status.json](https://raw.githubusercontent.com/sajjadtenmen/config/main/subscriptions/sources-status.json).
+
 ## Tested or complete?
 
 - **Tested** files contain only proxies that worked from the GitHub runner during
@@ -79,6 +82,12 @@ Every 24 hours the workflow:
 5. Creates plain-text, Base64, and Mihomo/Clash subscriptions.
 6. URL-tests supported proxies, sorts working entries by delay, and publishes the
    tested subscriptions.
+
+The source-status report records when each URL was last checked and last fetched
+successfully. It also includes the upstream `Last-Modified` timestamp and ETag
+when the source server provides them, the number of configurations found, and the
+most recent download error. A temporary failure does not erase the previous
+successful timestamp.
 
 Supported protocols include VLESS, VMess, Trojan, Shadowsocks, ShadowsocksR,
 Hysteria, Hysteria 2, and TUIC.

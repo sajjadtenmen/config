@@ -75,6 +75,6 @@ jobs:
             subscriptions/mihomo.yaml subscriptions/proxies.yaml \
             subscriptions/tested.txt subscriptions/tested-base64.txt \
             subscriptions/mihomo-tested.yaml subscriptions/proxies-tested.yaml \
-            subscriptions/latency.json
+            subscriptions/latency.json subscriptions/sources-status.json
           git commit -m "chore: update proxy subscriptions"
           git push
