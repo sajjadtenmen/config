@@ -421,6 +421,11 @@ def decode_ss_parts(config: ProxyConfig) -> tuple[str, int, str, str] | None:
 
 def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
     """Convert supported URI fields into a Mihomo/Clash proxy mapping."""
+    security = (config.details.get("security") or config.details.get("tls") or "").lower()
+    if security == "reality" and not config.details.get("pbk"):
+        # REALITY cannot connect without its server public key, and Mihomo
+        # rejects the entire configuration when reality-opts lacks this field.
+        return None
     proxy: dict[str, object] = {"name": name}
     if config.scheme == "vmess":
         data = decode_vmess(config.original)

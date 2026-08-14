@@ -204,6 +204,27 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn("sid=", config.original)
         self.assertEqual(proxy["reality-opts"], {"public-key": "publickey"})
 
+    def test_reality_without_public_key_is_kept_out_of_yaml(self):
+        link = (
+            "vless://abc@server.example:443?type=tcp&security=reality&"
+            "sni=example.com&sid=12ab#MissingKey"
+        )
+        config = collector.parse_config(link)
+        assert config is not None
+        self.assertIsNone(collector.to_mihomo_proxy(config, "MissingKey"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_count, yaml_count = collector.write_outputs(
+                [link],
+                root / "all.txt",
+                root / "base64.txt",
+                root / "mihomo.yaml",
+                root / "proxies.yaml",
+            )
+            self.assertEqual((config_count, yaml_count), (1, 0))
+            self.assertEqual((root / "all.txt").read_text(encoding="utf-8").strip(), link)
+
     def test_unsupported_shadowsocks_cipher_is_kept_out_of_yaml(self):
         userinfo = base64.urlsafe_b64encode(
             b"chacha20-poly1305:secret"
