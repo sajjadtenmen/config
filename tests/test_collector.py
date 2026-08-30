@@ -9,6 +9,9 @@ import collector
 import rank_configs
 
 
+REALITY_PUBLIC_KEY = "e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg"
+
+
 def vmess_link(name: str) -> str:
     data = {
         "v": "2",
@@ -159,19 +162,22 @@ class CollectorTests(unittest.TestCase):
     def test_builds_mihomo_vless_reality_proxy(self):
         config = collector.parse_config(
             "vless://abc@server.example:443?type=tcp&security=reality&"
-            "sni=example.com&pbk=publickey&sid=12ab#%40STenmenB%20%F0%9F%87%A9%F0%9F%87%AA%20VLESS%2FRAW%2FREALITY"
+            f"sni=example.com&pbk={REALITY_PUBLIC_KEY}&sid=12ab#%40STenmenB%20%F0%9F%87%A9%F0%9F%87%AA%20VLESS%2FRAW%2FREALITY"
         )
         assert config is not None
         proxy = collector.to_mihomo_proxy(config, collector.config_display_name(config))
         assert proxy is not None
         self.assertEqual(proxy["type"], "vless")
         self.assertTrue(proxy["tls"])
-        self.assertEqual(proxy["reality-opts"], {"public-key": "publickey", "short-id": "12ab"})
+        self.assertEqual(
+            proxy["reality-opts"],
+            {"public-key": REALITY_PUBLIC_KEY, "short-id": "12ab"},
+        )
 
     def test_reality_short_id_that_looks_exponential_is_quoted(self):
         config = collector.parse_config(
             "vless://abc@server.example:443?type=tcp&security=reality&"
-            "sni=example.com&pbk=publickey&sid=11e9#Reality"
+            f"sni=example.com&pbk={REALITY_PUBLIC_KEY}&sid=11e9#Reality"
         )
         assert config is not None
         proxy = collector.to_mihomo_proxy(config, "Reality")
@@ -182,7 +188,7 @@ class CollectorTests(unittest.TestCase):
     def test_reality_short_id_strips_non_hex_source_suffix(self):
         config = collector.parse_config(
             "vless://abc@server.example:443?type=tcp&security=reality&"
-            "pbk=publickey&sid=c39cc7310a@freenettir%20%C2%B2#Reality"
+            f"pbk={REALITY_PUBLIC_KEY}&sid=c39cc7310a@freenettir%20%C2%B2#Reality"
         )
         assert config is not None
         proxy = collector.to_mihomo_proxy(config, "Reality")
@@ -195,14 +201,14 @@ class CollectorTests(unittest.TestCase):
     def test_reality_short_id_omits_unrecoverable_value(self):
         config = collector.parse_config(
             "vless://abc@server.example:443?type=tcp&security=reality&"
-            "pbk=publickey&sid=not-a-short-id#Reality"
+            f"pbk={REALITY_PUBLIC_KEY}&sid=not-a-short-id#Reality"
         )
         assert config is not None
         proxy = collector.to_mihomo_proxy(config, "Reality")
         assert proxy is not None
         self.assertNotIn("sid", config.details)
         self.assertNotIn("sid=", config.original)
-        self.assertEqual(proxy["reality-opts"], {"public-key": "publickey"})
+        self.assertEqual(proxy["reality-opts"], {"public-key": REALITY_PUBLIC_KEY})
 
     def test_reality_without_public_key_is_kept_out_of_yaml(self):
         link = (
@@ -224,6 +230,31 @@ class CollectorTests(unittest.TestCase):
             )
             self.assertEqual((config_count, yaml_count), (1, 0))
             self.assertEqual((root / "all.txt").read_text(encoding="utf-8").strip(), link)
+
+    def test_reality_with_invalid_public_key_is_kept_out_of_yaml(self):
+        link = (
+            "vless://abc@195.133.35.63:2096?type=tcp&security=reality&"
+            "sni=example.com&pbk=e0fJ7c7cOw0IHdF0%25#InvalidKey"
+        )
+        config = collector.parse_config(link)
+        assert config is not None
+        self.assertFalse(collector.is_valid_reality_public_key(config.details["pbk"]))
+        self.assertIsNone(collector.to_mihomo_proxy(config, "InvalidKey"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_count, yaml_count = collector.write_outputs(
+                [link],
+                root / "all.txt",
+                root / "base64.txt",
+                root / "mihomo.yaml",
+                root / "proxies.yaml",
+            )
+            self.assertEqual((config_count, yaml_count), (1, 0))
+            self.assertIn("pbk=e0fJ7c7cOw0IHdF0%25", (root / "all.txt").read_text(encoding="utf-8"))
+
+    def test_accepts_valid_reality_public_key(self):
+        self.assertTrue(collector.is_valid_reality_public_key(REALITY_PUBLIC_KEY))
 
     def test_unsupported_shadowsocks_cipher_is_kept_out_of_yaml(self):
         userinfo = base64.urlsafe_b64encode(

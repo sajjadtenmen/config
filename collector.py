@@ -178,6 +178,17 @@ def normalize_reality_short_id(value: str) -> str | None:
     return None
 
 
+def is_valid_reality_public_key(value: str | None) -> bool:
+    """Return whether a REALITY public key is a raw URL-safe Base64 X25519 key."""
+    if not value or not re.fullmatch(r"[A-Za-z0-9_-]{43}", value):
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(add_base64_padding(value))
+    except ValueError:
+        return False
+    return len(decoded) == 32
+
+
 def parse_config(link: str) -> ProxyConfig | None:
     scheme = link.partition("://")[0].lower()
     if scheme not in SUPPORTED_SCHEMES:
@@ -422,9 +433,9 @@ def decode_ss_parts(config: ProxyConfig) -> tuple[str, int, str, str] | None:
 def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
     """Convert supported URI fields into a Mihomo/Clash proxy mapping."""
     security = (config.details.get("security") or config.details.get("tls") or "").lower()
-    if security == "reality" and not config.details.get("pbk"):
-        # REALITY cannot connect without its server public key, and Mihomo
-        # rejects the entire configuration when reality-opts lacks this field.
+    if security == "reality" and not is_valid_reality_public_key(config.details.get("pbk")):
+        # REALITY cannot connect without a valid X25519 server public key, and
+        # Mihomo rejects the entire configuration when this field is malformed.
         return None
     proxy: dict[str, object] = {"name": name}
     if config.scheme == "vmess":
