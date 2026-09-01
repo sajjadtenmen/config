@@ -22,4 +22,3 @@ https://iran.jetnox.co/sub/ccd1e57a-0442-4dc2-a6e2-73c6f0bf5d5f
 https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs_base64.txt
 https://gitverse.ru/api/repos/bikinitw22/apelsintel/raw/branch/main/alive_full.txt
 https://raw.githubusercontent.com/Diversan313/apex-parser/main/alive_full.txt
-https://raw.githubusercontent.com/sakha1370/OpenRay/refs/heads/main/output/all_valid_proxies.txt
