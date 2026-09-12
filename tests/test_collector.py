@@ -323,6 +323,21 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn("servername", proxy)
         self.assertNotIn("tls", proxy)
 
+    def test_hysteria2_obfs_requires_password_for_mihomo(self):
+        malformed = collector.parse_config(
+            "hysteria2://secret@server.example:443?obfs=salamander#Missing"
+        )
+        valid = collector.parse_config(
+            "hysteria2://secret@server.example:443?obfs=salamander&obfs-password=mask#Valid"
+        )
+        assert malformed is not None
+        assert valid is not None
+        self.assertIsNone(collector.to_mihomo_proxy(malformed, "Missing"))
+        proxy = collector.to_mihomo_proxy(valid, "Valid")
+        assert proxy is not None
+        self.assertEqual(proxy["obfs"], "salamander")
+        self.assertEqual(proxy["obfs-password"], "mask")
+
     def test_ranked_candidates_keep_only_alive_in_delay_order(self):
         links = [
             "vless://one@example.com:443?type=ws&security=tls#Same",

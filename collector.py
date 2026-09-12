@@ -499,12 +499,20 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
         auth = password or username
         if not auth:
             return None
+        obfs = config.details.get("obfs")
+        obfs_password = config.details.get("obfs-password")
+        if obfs and not obfs_password:
+            # Mihomo treats an enabled Hysteria2 obfuscator without its
+            # password as a fatal config error, rejecting every proxy in the
+            # generated subscription. Keep the URI in all.txt, but omit this
+            # malformed entry from Mihomo YAML.
+            return None
         proxy.update({"type": "hysteria2", "server": server, "port": port, "password": auth})
         hysteria_options(proxy, config.details)
-        if config.details.get("obfs"):
-            proxy["obfs"] = config.details["obfs"]
-        if config.details.get("obfs-password"):
-            proxy["obfs-password"] = config.details["obfs-password"]
+        if obfs:
+            proxy["obfs"] = obfs
+        if obfs_password:
+            proxy["obfs-password"] = obfs_password
     elif config.scheme == "hysteria":
         proxy.update({"type": "hysteria", "server": server, "port": port})
         if username:
