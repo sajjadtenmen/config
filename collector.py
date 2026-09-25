@@ -72,6 +72,14 @@ MIHOMO_SS_CIPHERS = {
     "xchacha8-ietf-poly1305",
 }
 
+MIHOMO_VMESS_CIPHERS = {
+    "auto",
+    "none",
+    "zero",
+    "aes-128-gcm",
+    "chacha20-poly1305",
+}
+
 
 class QuotedString(str):
     """A YAML string that must remain quoted to avoid scalar coercion."""
@@ -440,6 +448,9 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
     proxy: dict[str, object] = {"name": name}
     if config.scheme == "vmess":
         data = decode_vmess(config.original)
+        cipher = str(data.get("scy") or "auto").strip().lower()
+        if cipher not in MIHOMO_VMESS_CIPHERS:
+            return None
         try:
             proxy.update(
                 {
@@ -448,7 +459,7 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
                     "port": int(str(data["port"])),
                     "uuid": str(data["id"]),
                     "alterId": int(str(data.get("aid", 0) or 0)),
-                    "cipher": str(data.get("scy") or "auto"),
+                    "cipher": cipher,
                     "udp": True,
                 }
             )

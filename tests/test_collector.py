@@ -46,6 +46,28 @@ class CollectorTests(unittest.TestCase):
             len(collector.unique_configs([vmess_link("one"), vmess_link("two")])), 1
         )
 
+    def test_unsupported_vmess_cipher_is_kept_out_of_yaml(self):
+        data = collector.decode_vmess(vmess_link("Unsupported"))
+        data["scy"] = "null"
+        link = "vmess://" + base64.urlsafe_b64encode(
+            json.dumps(data).encode()
+        ).decode().rstrip("=")
+        config = collector.parse_config(link)
+        assert config is not None
+        self.assertIsNone(collector.to_mihomo_proxy(config, "Unsupported"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_count, yaml_count = collector.write_outputs(
+                [link],
+                root / "all.txt",
+                root / "base64.txt",
+                root / "mihomo.yaml",
+                root / "proxies.yaml",
+            )
+            self.assertEqual((config_count, yaml_count), (1, 0))
+            self.assertEqual((root / "all.txt").read_text(encoding="utf-8").strip(), link)
+
     def test_labels_and_renames(self):
         config = collector.parse_config(
             "vless://id@1.1.1.1:443?type=tcp&security=reality#old"
