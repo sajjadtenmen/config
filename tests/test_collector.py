@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 import collector
 import rank_configs
 
@@ -77,6 +79,29 @@ class CollectorTests(unittest.TestCase):
         renamed = collector.rename_config(config, "@STenmenB 🇦🇺 VLESS/RAW/REALITY")
         self.assertIn("%40STenmenB", renamed)
         self.assertNotIn("#old", renamed)
+
+    def test_vless_flow_compatibility_in_subscription_outputs(self):
+        uri = "vless://00000000-0000-0000-0000-000000000001@example.com:443"
+        links = [
+            f"{uri}?flow=xtls-rprx-direct#Legacy",
+            f"{uri}?flow=xtls-rprx-vision#Vision",
+            f"{uri}?flow=xtls-rprx-vision-udp443#VisionUDP",
+            f"{uri}#Default",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plain = root / "all.txt"
+            mihomo = root / "mihomo.yaml"
+            counts = collector.write_outputs(
+                links, plain, root / "base64.txt", mihomo, root / "proxies.yaml"
+            )
+            self.assertEqual(counts, (4, 3))
+            self.assertEqual(plain.read_text(encoding="utf-8").splitlines(), links)
+            proxies = yaml.safe_load(mihomo.read_text(encoding="utf-8"))["proxies"]
+            self.assertEqual(
+                {proxy["name"]: proxy.get("flow") for proxy in proxies},
+                {"Vision": "xtls-rprx-vision", "VisionUDP": "xtls-rprx-vision", "Default": None},
+            )
 
     def test_invalid_legacy_hostname_does_not_crash_resolution(self):
         overlong_host = "a" * 100

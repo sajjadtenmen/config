@@ -493,11 +493,12 @@ def to_mihomo_proxy(config: ProxyConfig, name: str) -> dict[str, object] | None:
     password = urllib.parse.unquote(parsed.password or "")
 
     if config.scheme == "vless":
-        if not username:
+        flow = config.details.get("flow", "")
+        if not username or flow not in {"", "xtls-rprx-vision", "xtls-rprx-vision-udp443"}:
             return None
         proxy.update({"type": "vless", "server": server, "port": port, "uuid": username, "udp": True})
-        if config.details.get("flow"):
-            proxy["flow"] = config.details["flow"]
+        if flow:
+            proxy["flow"] = "xtls-rprx-vision"
         network_options(proxy, config.details)
         tls_options(proxy, config.details)
     elif config.scheme == "trojan":
